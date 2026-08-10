@@ -1,0 +1,54 @@
+name: FairyMU Backend CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fairymu-backend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test-publish:
+    name: Build, smoke test and publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Show .NET version
+        run: dotnet --version
+
+      - name: Restore
+        run: dotnet restore FairyMU.Api.csproj
+
+      - name: Build Release
+        run: dotnet build FairyMU.Api.csproj --configuration Release --no-restore
+
+      - name: Run API smoke tests
+        shell: bash
+        run: bash scripts/smoke-test.sh
+
+      - name: Publish backend
+        run: dotnet publish FairyMU.Api.csproj --configuration Release --no-build --output ./publish
+
+      - name: Upload published backend
+        uses: actions/upload-artifact@v7
+        with:
+          name: fairymu-backend-${{ github.sha }}
+          path: ./publish
+          if-no-files-found: error
+          retention-days: 14
