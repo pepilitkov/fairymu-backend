@@ -1,0 +1,23 @@
+{
+  "project_files": [
+    ".gitignore",
+    "Contracts/Requests.cs",
+    "FairyMU.Api.csproj",
+    "FairyMU.Api.http",
+    "Models/AccountRecord.cs",
+    "Models/CharacterRecord.cs",
+    "Program.cs",
+    "README.md",
+    "Services/DemoGameDataService.cs",
+    "Services/InMemoryAccountStore.cs",
+    "Services/SessionService.cs",
+    "appsettings.Production.example.json",
+    "appsettings.json",
+    "openapi.yaml"
+  ],
+  "contains_plaintext_password_storage": false,
+  "cors_origin": "https://pepilitkov.github.io",
+  "target_framework": "net10.0",
+  "database": "in-memory v1; PostgreSQL/OpenMU planned",
+  "auth": "opaque random 256-bit bearer session token; in-memory v1"
+}

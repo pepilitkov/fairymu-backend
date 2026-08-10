@@ -1,0 +1,8 @@
+bin/
+obj/
+publish/
+*.user
+*.suo
+.env
+appsettings.Production.json
+secrets.json

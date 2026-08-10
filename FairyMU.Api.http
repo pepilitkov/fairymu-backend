@@ -1,0 +1,31 @@
+@base = https://localhost:5001
+
+### Status
+GET {{base}}/api/status
+
+### Register
+POST {{base}}/api/register
+Content-Type: application/json
+
+{
+  "username": "TestPlayer",
+  "email": "test@example.com",
+  "password": "ChangeThis123!"
+}
+
+### Login
+POST {{base}}/api/login
+Content-Type: application/json
+
+{
+  "usernameOrEmail": "TestPlayer",
+  "password": "ChangeThis123!"
+}
+
+### Account
+GET {{base}}/api/account
+Authorization: Bearer PASTE_TOKEN_HERE
+
+### Characters
+GET {{base}}/api/characters
+Authorization: Bearer PASTE_TOKEN_HERE

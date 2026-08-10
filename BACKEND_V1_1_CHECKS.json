@@ -1,0 +1,20 @@
+{
+  "version": "1.1",
+  "ci_workflow": ".github/workflows/backend-ci.yml",
+  "dotnet": "10.0.x",
+  "smoke_tests": [
+    "GET /api/status",
+    "POST /api/register -> 201",
+    "POST /api/login -> 200 + bearer token",
+    "GET /api/account -> 200",
+    "GET /api/characters -> 200",
+    "bad password -> 401"
+  ],
+  "publish_artifact": true,
+  "static_checks": {
+    "workflow_exists": true,
+    "smoke_script_exists": true,
+    "program_partial_class": true,
+    "no_production_secrets_file": true
+  }
+}
