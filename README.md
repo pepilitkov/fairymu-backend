@@ -1,113 +1,55 @@
-# FairyMU Backend v1.1
+# FairyMU Backend v2 — PostgreSQL Ready
 
-> GitHub Actions CI: build → API smoke tests → publish artifact.
+FairyMU Backend v2 adds a real PostgreSQL persistence path while keeping the no-admin workflow.
 
-Backend scaffold за FairyMU, подготвен предварително без нужда от admin права на служебния компютър.
+## What changed
 
-## Stack
-- ASP.NET Core Minimal API
-- .NET 10
-- Built-in ASP.NET Core Identity password hashing
-- Built-in ASP.NET Core rate limiting
-- Explicit CORS allowlist
-- In-memory accounts and sessions for v1 development
-- API contract in `openapi.yaml`
+- EF Core 10
+- Npgsql EF Core provider 10.0.3
+- `IAccountStore` abstraction
+- in-memory store remains available
+- PostgreSQL `EfAccountStore`
+- separate `fairymu_portal.portal_accounts` table
+- GitHub Actions PostgreSQL service
+- automatic PostgreSQL smoke tests
+- OpenMU adapter boundary prepared
 
-## Endpoints
+## Modes
 
-Public:
-- `GET /api/status`
-- `GET /api/online`
-- `GET /api/rankings`
-- `GET /api/guilds`
-- `GET /api/events`
+Default:
 
-Authentication:
-- `POST /api/register`
-- `POST /api/login`
-- `POST /api/logout`
-
-Authenticated:
-- `GET /api/account`
-- `GET /api/characters`
-
-## Important: v1 limitations
-This v1 intentionally DOES NOT write to OpenMU/PostgreSQL yet.
-
-Accounts and login sessions are in RAM and disappear when the process restarts.
-The opaque bearer token is a temporary v1 implementation.
-
-Before public launch we will:
-1. replace `InMemoryAccountStore` with PostgreSQL/OpenMU integration;
-2. replace temporary sessions with production authentication/session storage;
-3. connect rankings, guilds, events and online count to actual OpenMU data;
-4. configure HTTPS/reverse proxy on the VPS;
-5. use server-side secrets/environment variables only.
-
-## Security already included
-- Passwords are never stored as plaintext.
-- Passwords are hashed with ASP.NET Core Identity `PasswordHasher`.
-- Registration and login have a stricter rate limit.
-- CORS is limited to configured frontend origins.
-- Request models use validation attributes.
-- No DB password/API secret is committed.
-- Protected endpoints require a valid bearer session token.
-
-## Configuration
-Edit `appsettings.Production.example.json` when deploying.
-Do not commit real secrets.
-
-Current frontend origin:
-`https://pepilitkov.github.io`
-
-## Later VPS commands
-When .NET 10 SDK is installed on the VPS:
-
-```bash
-dotnet restore
-dotnet build -c Release
-dotnet run
+```json
+"Persistence": { "Mode": "Memory" }
 ```
 
-For production, we will publish with:
+PostgreSQL:
 
-```bash
-dotnet publish -c Release -o ./publish
+```text
+FairyMU__Persistence__Mode=Postgres
+ConnectionStrings__FairyMU=Host=...;Database=...;Username=...;Password=...
 ```
 
-## OpenMU integration point
-The backend is intentionally separated from the game-data adapter.
-`DemoGameDataService` will later be replaced by an OpenMU/PostgreSQL-backed service.
+For CI only, `InitializeDatabase=true` uses `EnsureCreated()` to bootstrap the temporary database.
 
-## GitHub Actions CI
+For production we will move to controlled EF migrations before launch.
 
-Workflow: `.github/workflows/backend-ci.yml`
+## Security
 
-При push към `main` или pull request GitHub автоматично:
+Do not commit a real production connection string.
+Use environment variables / deployment secrets on the VPS.
 
-1. checkout-ва repository-то;
-2. инсталира .NET 10 чрез `actions/setup-dotnet`;
-3. изпълнява `dotnet restore`;
-4. изпълнява Release build;
-5. стартира FairyMU API локално на GitHub runner-а;
-6. smoke test-ва:
-   - `GET /api/status`
-   - `POST /api/register`
-   - `POST /api/login`
-   - `GET /api/account`
-   - `GET /api/characters`
-   - грешна парола → HTTP 401
-7. изпълнява `dotnet publish`;
-8. качва готовия `publish/` като GitHub Actions artifact.
+Passwords remain hashed through ASP.NET Core Identity PasswordHasher.
 
-### Как да видиш резултата
-Repository → **Actions** → **FairyMU Backend CI** → последния run.
+## OpenMU
 
-Зелено ✅ = build + основният API flow са минали.
-Червено ❌ = отвори failed step и виж точната грешка.
+OpenMU integration is deliberately not faked in v2. OpenMU currently uses EF Core + PostgreSQL, but the final adapter must be built against the exact server version/schema that we deploy.
 
-### Artifact
-При успешен run в долната част на workflow run-а ще има artifact с име:
-`fairymu-backend-<commit-sha>`
+## GitHub CI success target
 
-Той е готовият publish output за бъдещия VPS.
+The workflow must pass:
+
+- Build Release
+- In-memory smoke tests
+- PostgreSQL smoke tests
+- Publish backend
+- Upload artifact

@@ -2,17 +2,36 @@ using System.ComponentModel.DataAnnotations;
 using System.Threading.RateLimiting;
 using FairyMU.Api.Contracts;
 using FairyMU.Api.Models;
+using FairyMU.Api.Persistence;
 using FairyMU.Api.Services;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddProblemDetails();
-builder.Services.AddSingleton<InMemoryAccountStore>();
 builder.Services.AddSingleton<SessionService>();
 builder.Services.AddSingleton<DemoGameDataService>();
 builder.Services.AddSingleton<IPasswordHasher<AccountRecord>, PasswordHasher<AccountRecord>>();
+
+var persistenceMode = builder.Configuration["FairyMU:Persistence:Mode"] ?? "Memory";
+
+if (persistenceMode.Equals("Postgres", StringComparison.OrdinalIgnoreCase))
+{
+    var connectionString = builder.Configuration.GetConnectionString("FairyMU");
+    if (string.IsNullOrWhiteSpace(connectionString))
+        throw new InvalidOperationException("PostgreSQL mode requires ConnectionStrings:FairyMU.");
+
+    builder.Services.AddDbContext<FairyMuDbContext>(options =>
+        options.UseNpgsql(connectionString));
+
+    builder.Services.AddScoped<IAccountStore, EfAccountStore>();
+}
+else
+{
+    builder.Services.AddSingleton<IAccountStore, InMemoryAccountStore>();
+}
 
 var allowedOrigins = builder.Configuration
     .GetSection("FairyMU:AllowedOrigins")
@@ -52,6 +71,14 @@ builder.Services.AddRateLimiter(options =>
 
 var app = builder.Build();
 
+if (persistenceMode.Equals("Postgres", StringComparison.OrdinalIgnoreCase) &&
+    builder.Configuration.GetValue<bool>("FairyMU:Persistence:InitializeDatabase"))
+{
+    await using var scope = app.Services.CreateAsyncScope();
+    var db = scope.ServiceProvider.GetRequiredService<FairyMuDbContext>();
+    await db.Database.EnsureCreatedAsync();
+}
+
 app.UseExceptionHandler();
 
 if (!app.Environment.IsDevelopment())
@@ -85,8 +112,8 @@ api.MapGet("/status", (IConfiguration config) => Results.Ok(new
     status = "Online",
     server = config["FairyMU:ServerName"] ?? "FairyMU",
     season = config["FairyMU:Season"] ?? "Season 6 Episode 3",
-    apiVersion = "1.0.0",
-    mode = "backend-v1-in-memory",
+    apiVersion = "2.0.0",
+    persistence = config["FairyMU:Persistence:Mode"] ?? "Memory",
     utc = DateTimeOffset.UtcNow
 })).RequireRateLimiting("public");
 
@@ -109,33 +136,33 @@ api.MapGet("/events", (DemoGameDataService game) =>
     Results.Ok(game.Events()))
     .RequireRateLimiting("public");
 
-api.MapPost("/register", (
+api.MapPost("/register", async (
     RegisterRequest request,
-    InMemoryAccountStore store,
-    IPasswordHasher<AccountRecord> passwordHasher) =>
+    IAccountStore store,
+    IPasswordHasher<AccountRecord> passwordHasher,
+    CancellationToken cancellationToken) =>
 {
     var errors = Validate(request);
     if (errors.Count > 0)
         return Results.ValidationProblem(errors);
 
-    var normalizedUser = request.Username.Trim();
-    var normalizedEmail = request.Email.Trim().ToLowerInvariant();
-
     var account = new AccountRecord
     {
-        Username = normalizedUser,
-        Email = normalizedEmail,
+        Username = request.Username.Trim(),
+        Email = request.Email.Trim().ToLowerInvariant(),
         PasswordHash = ""
     };
 
     account.PasswordHash = passwordHasher.HashPassword(account, request.Password);
 
-    if (!store.TryCreate(account))
+    if (!await store.TryCreateAsync(account, cancellationToken))
+    {
         return Results.Conflict(new
         {
             error = "account_exists",
             message = "Username or email is already registered."
         });
+    }
 
     return Results.Created($"/api/account/{account.Id}", new
     {
@@ -146,17 +173,20 @@ api.MapPost("/register", (
     });
 }).RequireRateLimiting("auth");
 
-api.MapPost("/login", (
+api.MapPost("/login", async (
     LoginRequest request,
-    InMemoryAccountStore store,
+    IAccountStore store,
     IPasswordHasher<AccountRecord> passwordHasher,
-    SessionService sessions) =>
+    SessionService sessions,
+    CancellationToken cancellationToken) =>
 {
     var errors = Validate(request);
     if (errors.Count > 0)
         return Results.ValidationProblem(errors);
 
-    var account = store.FindByUsernameOrEmail(request.UsernameOrEmail.Trim());
+    var account = await store.FindByUsernameOrEmailAsync(
+        request.UsernameOrEmail.Trim(), cancellationToken);
+
     if (account is null)
         return Results.Unauthorized();
 
@@ -169,6 +199,8 @@ api.MapPost("/login", (
         return Results.Unauthorized();
 
     account.LastLoginAt = DateTimeOffset.UtcNow;
+    await store.SaveChangesAsync(cancellationToken);
+
     var token = sessions.Create(account.Id);
 
     return Results.Ok(new
@@ -193,16 +225,17 @@ api.MapPost("/logout", (HttpRequest request, SessionService sessions) =>
     return Results.NoContent();
 }).RequireRateLimiting("auth");
 
-api.MapGet("/account", (
+api.MapGet("/account", async (
     HttpRequest request,
     SessionService sessions,
-    InMemoryAccountStore store) =>
+    IAccountStore store,
+    CancellationToken cancellationToken) =>
 {
     var accountId = sessions.Resolve(request);
     if (accountId is null)
         return Results.Unauthorized();
 
-    var account = store.FindById(accountId.Value);
+    var account = await store.FindByIdAsync(accountId.Value, cancellationToken);
     if (account is null)
         return Results.Unauthorized();
 
@@ -233,11 +266,11 @@ api.MapGet("/characters", (
 app.MapGet("/", () => Results.Ok(new
 {
     project = "FairyMU API",
-    version = "1.0.0",
-    docs = "See README.md and openapi.yaml"
+    version = "2.0.0",
+    persistence = persistenceMode,
+    note = "OpenMU game-data adapter is intentionally separate."
 }));
 
 app.Run();
-
 
 public partial class Program { }
